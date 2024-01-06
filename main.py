@@ -10,9 +10,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException
 from selenium.common.exceptions import (
-    StaleElementReferenceException,
     NoSuchElementException,
-    TimeoutException,
 )
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -94,46 +92,46 @@ class RedditScraper:
 
     def get_posts(self, limit=3):
         posts = []
-
         try:
-            while len(posts) < limit:
+            while True:
                 post_elements = self.driver.find_elements(By.TAG_NAME, "shreddit-post")
 
                 for post in post_elements[len(posts) :]:
                     if len(posts) >= limit:
                         break
-                    try:
-                        posts.append(self.__scrape_post_preview(post))
-                        # Scroll to the current post
-                        self.driver.execute_script(
-                            "arguments[0].scrollIntoView();", post
-                        )
-                        WebDriverWait(self.driver, 10).until(EC.visibility_of(post))
-                    except StaleElementReferenceException:
-                        logging.warning(
-                            "Stale element reference encountered. Reattempting."
-                        )
-                        break  # Break the inner loop to refresh the list of posts
 
-                # Check if more posts need to be loaded
-                if len(posts) < limit:
-                    # Wait for new posts to load
-                    WebDriverWait(self.driver, 10).until(
-                        lambda d: len(d.find_elements(By.TAG_NAME, "shreddit-post"))
-                        > len(post_elements)
-                    )
+                    posts.append(self.__scrape_post_preview(post))
+
+                last_height = self.driver.execute_script(
+                    "return document.body.scrollHeight"
+                )
+                # Scroll down a bit to load new posts
+                self.driver.execute_script(
+                    "window.scrollTo(0, document.body.scrollHeight);"
+                )
+
+                # Add a delay to allow the page to load
+                time.sleep(round(random.uniform(0, 3), 2))
+
+                new_height = self.driver.execute_script(
+                    "return document.body.scrollHeight"
+                )
+
+                if len(posts) >= limit:
+                    break
+
+                if new_height == last_height:
+                    logging.warning("Reached the bottom of the page.")
+                    break
 
         except NoSuchElementException as e:
             logging.error(f"Error while locating elements on the page: {e}")
-        except TimeoutException as e:
-            logging.error(f"Timeout occurred while locating elements on the page: {e}")
-
-        # except Exception as e:
-        #     logging.error(f"An unexpected error occurred: {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred: {e}")
 
         if len(posts) < limit:
             logging.warning(
-                f"Could not reach the desired number of posts. Only {len(posts)} posts scraped."
+                f"Could not find the desired number of posts. {len(posts)}/{limit} posts scraped."
             )
 
         return posts
@@ -150,12 +148,11 @@ class RedditScraper:
 
 if __name__ == "__main__":
     scraper = RedditScraper(headless=False)
-    url = "https://www.reddit.com/r/Calculatedasshattery/"
-    # url = "https://www.reddit.com/r/AmItheAsshole/"
+    # url = "https://www.reddit.com/r/Calculatedasshattery/"
+    url = "https://www.reddit.com/r/AmItheAsshole/"
 
     if scraper.get(url):
-        print(scraper.get_title())
-        posts = scraper.get_posts(limit=60)
+        posts = scraper.get_posts(limit=33)
         print(posts)
         print(len(posts))
         scraper.close()
