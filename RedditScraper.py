@@ -64,13 +64,6 @@ class RedditScraper:
             logging.error(f"Failed to load URL {url}: {e}")
             return False
 
-    def get_title(self):
-        if self.driver:
-            return self.driver.title
-        else:
-            logging.error("WebDriver not initialized.")
-            return None
-
     def scrape_post_preview(self, post) -> dict:
         attributes = [
             "permalink",
@@ -112,7 +105,7 @@ class RedditScraper:
                 )
 
                 # Add a delay to allow the page to load
-                time.sleep(round(random.uniform(0, 3), 2))
+                time.sleep(round(random.uniform(1, 4), 3))
 
                 new_height = self.driver.execute_script(
                     "return document.body.scrollHeight"
