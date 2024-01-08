@@ -3,9 +3,12 @@
   - give tool a subreddit and have it scrape everything
 - Make it a cli
 - different output formats
+- Get pots based on date or just a limit
+- Have an option to scrape all
 
 
 ## General thoughts
 - Proxies
 - Retries
-- Likely needs a headless browser
+- Need a good way to structure comments
+- 
