@@ -21,20 +21,18 @@ logger = logging.basicConfig(
 
 
 class RedditScraper:
-    def __init__(self, url, headless=False) -> None:
+    def __init__(self, url: str, headless=False, max_workers=None) -> None:
         self.url = url
         self.headless = headless
+        self.max_workers = max_workers
 
     def __str__(self) -> str:
         return f"RedditScraper for url: {self.url}. Headless: {self.headless}"
 
     def __enter__(self):
-        options = webdriver.ChromeOptions()
-        if self.headless:
-            options.add_argument("--headless")
-
         try:
-            self.driver = webdriver.Chrome(options=options)
+            # Try to build WebDriver
+            self.driver = self.build_web_driver(headless=self.headless)
 
             # Ensure user is tring to scrape a valid subreddit
             self.validate_reddit_url(self.url)
@@ -57,16 +55,26 @@ class RedditScraper:
             logging.error(traceback_details)
             return False
 
-        if self.driver:
+        self.quit_web_driver(driver=self.driver)
+
+        # No exception, so clean exit
+        return True
+
+    def build_web_driver(self, headless=True):
+        options = webdriver.ChromeOptions()
+        if headless:
+            options.add_argument("--headless")
+
+        return webdriver.Chrome(options=options)
+
+    def quit_web_driver(self, driver):
+        if driver:
             try:
-                self.driver.quit()
+                driver.quit()
             except WebDriverException as e:
                 logging.error(f"Failed to close WebDriver: {e}")
         else:
             logging.error("WebDriver not initialized.")
-
-        # No exception, so clean exit
-        return True
 
     def validate_reddit_url(self, url):
         parts = urlparse(url)
@@ -96,6 +104,12 @@ class RedditScraper:
         logging.info(f"Scraping post titled: {post.get_attribute('post-title')}")
         content = {attr: post.get_attribute(attr) for attr in attributes}
 
+        driver = self.build_web_driver()
+        driver.get(f"https://www.reddit.com{content['permalink']}")
+        title = driver.title
+        print(f"%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%{title}")
+        self.quit_web_driver(driver=driver)
+
         return content
 
     def validate_posts_limit(self, limit):
@@ -120,18 +134,30 @@ class RedditScraper:
 
         posts = []
 
-        executor = futures.ThreadPoolExecutor()
+        executor = futures.ThreadPoolExecutor(max_workers=self.max_workers)
+        print(executor._max_workers)
 
         try:
             while True:
                 post_elements = self.driver.find_elements(By.TAG_NAME, "shreddit-post")
 
-                for post in post_elements[len(posts) :]:
-                    if limit is not None and len(posts) >= limit:
-                        break
+                # Calculate the starting index for new posts
+                start_index = len(posts)
 
-                    # don't just append posts previews
-                    posts.append(self.scrape_post_preview(post))
+                if limit is None:
+                    end_index = len(post_elements)
+                else:
+                    # Calculate the ending index - either add all remaining posts or just enough to reach the limit
+                    remaining_spaces = limit - len(posts)
+                    end_index = start_index + min(
+                        len(post_elements) - start_index, remaining_spaces
+                    )
+
+                # Slice the post_elements list to get the posts to add
+                posts_to_add = post_elements[start_index:end_index]
+
+                # posts.extend(map(self.scrape_post_preview, posts_to_add))
+                posts.extend(list(executor.map(self.scrape_post_preview, posts_to_add)))
 
                 last_height = self.driver.execute_script(
                     "return document.body.scrollHeight"
@@ -161,6 +187,9 @@ class RedditScraper:
             logging.error(f"Error while locating elements on the page: {e}")
         except Exception as e:
             logging.error(f"An unexpected error occurred: {e}")
+        finally:
+            # Always close executor
+            executor.shutdown()
 
         # If limit is None, just log the number of posts scraped
         if limit is None:
