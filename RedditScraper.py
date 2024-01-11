@@ -156,8 +156,10 @@ class RedditScraper:
                 # Slice the post_elements list to get the posts to add
                 posts_to_add = post_elements[start_index:end_index]
 
-                # posts.extend(map(self.scrape_post_preview, posts_to_add))
                 posts.extend(list(executor.map(self.scrape_post_preview, posts_to_add)))
+
+                if limit is not None and len(posts) >= limit:
+                    break
 
                 last_height = self.driver.execute_script(
                     "return document.body.scrollHeight"
@@ -178,9 +180,7 @@ class RedditScraper:
                 )
 
                 # Break the loop if we've reached the bottom of the page or reached the limit
-                if new_height == last_height or (
-                    limit is not None and len(posts) >= limit
-                ):
+                if new_height == last_height:
                     break
 
         except NoSuchElementException as e:
