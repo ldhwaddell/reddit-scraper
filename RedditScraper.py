@@ -63,6 +63,8 @@ class RedditScraper:
     def build_web_driver(self, headless=True):
         options = webdriver.ChromeOptions()
         if headless:
+            # ADD: Random user agent selection
+            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36')
             options.add_argument("--headless")
 
         return webdriver.Chrome(options=options)
@@ -104,10 +106,19 @@ class RedditScraper:
         logging.info(f"Scraping post titled: {post.get_attribute('post-title')}")
         content = {attr: post.get_attribute(attr) for attr in attributes}
 
-        driver = self.build_web_driver()
+        driver = self.build_web_driver(headless=True)
         driver.get(f"https://www.reddit.com{content['permalink']}")
-        title = driver.title
-        print(f"%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%{title}")
+
+        time.sleep(1)
+
+        post = driver.find_element(By.TAG_NAME, "shreddit-post")
+        post_text = post.find_elements(By.TAG_NAME, "p")
+
+        print(f"found this many {len(post_text)}")
+
+        for p in post_text:
+            print(p.text)
+
         self.quit_web_driver(driver=driver)
 
         return content
@@ -135,7 +146,6 @@ class RedditScraper:
         posts = []
 
         executor = futures.ThreadPoolExecutor(max_workers=self.max_workers)
-        print(executor._max_workers)
 
         try:
             while True:
