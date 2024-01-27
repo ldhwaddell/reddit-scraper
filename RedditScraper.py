@@ -4,15 +4,17 @@ import random
 import re
 import time
 import traceback
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 
+from fake_useragent import UserAgent
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import WebDriverException
 from selenium.common.exceptions import (
     NoSuchElementException,
 )
+
 
 # Set up logger
 logger = logging.basicConfig(
@@ -25,9 +27,10 @@ class RedditScraper:
         self.url = url
         self.headless = headless
         self.max_workers = max_workers
+        self.user_agent = UserAgent()
 
     def __str__(self) -> str:
-        return f"RedditScraper for url: {self.url}. Headless: {self.headless}"
+        return f"RedditScraper for url: {self.url}. Headless: {self.headless}. Max workers (threads): {self.max_workers}"
 
     def __enter__(self):
         try:
@@ -60,11 +63,10 @@ class RedditScraper:
         # No exception, so clean exit
         return True
 
-    def build_web_driver(self, headless=True):
+    def build_web_driver(self, headless=True) -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
         if headless:
-            # ADD: Random user agent selection
-            options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36')
+            options.add_argument(f"user-agent={self.user_agent.random}")
             options.add_argument("--headless")
 
         return webdriver.Chrome(options=options)
@@ -89,7 +91,7 @@ class RedditScraper:
         ):
             raise Exception("Invalid URL. Illegal subreddit path")
 
-    def scrape_post_preview(self, post) -> dict:
+    def scrape_post(self, post) -> dict:
         attributes = [
             "permalink",
             "content-href",
@@ -103,21 +105,18 @@ class RedditScraper:
             "author",
         ]
 
+        # Get all content from preview
         logging.info(f"Scraping post titled: {post.get_attribute('post-title')}")
         content = {attr: post.get_attribute(attr) for attr in attributes}
 
+        # Build driver
         driver = self.build_web_driver(headless=True)
-        driver.get(f"https://www.reddit.com{content['permalink']}")
 
-        time.sleep(1)
+        #  Visit the posts url
+        url = urljoin("https://www.reddit.com", content["permalink"])
+        driver.get(url)
 
-        post = driver.find_element(By.TAG_NAME, "shreddit-post")
-        post_text = post.find_elements(By.TAG_NAME, "p")
-
-        print(f"found this many {len(post_text)}")
-
-        for p in post_text:
-            print(p.text)
+        print(driver.title)
 
         self.quit_web_driver(driver=driver)
 
@@ -166,7 +165,7 @@ class RedditScraper:
                 # Slice the post_elements list to get the posts to add
                 posts_to_add = post_elements[start_index:end_index]
 
-                posts.extend(list(executor.map(self.scrape_post_preview, posts_to_add)))
+                posts.extend(executor.map(self.scrape_post, posts_to_add))
 
                 if limit is not None and len(posts) >= limit:
                     break
