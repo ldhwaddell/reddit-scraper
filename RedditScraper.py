@@ -24,7 +24,7 @@ logger = logging.basicConfig(
 
 class RedditScraper:
     def __init__(self, url: str, headless=False, max_workers=None) -> None:
-        self.url = url
+        self.url = self.validate_reddit_url(url)
         self.headless = headless
         self.max_workers = max_workers
         self.user_agent = UserAgent()
@@ -36,16 +36,15 @@ class RedditScraper:
         try:
             # Try to build WebDriver
             self.driver = self.build_web_driver(headless=self.headless)
-
-            # Ensure user is tring to scrape a valid subreddit
-            self.validate_reddit_url(self.url)
             self.driver.get(self.url)
             return self
 
         except WebDriverException as e:
             logging.error(f"Failed to initialize Chrome WebDriver: {e}")
+            raise e
         except Exception as e:
             logging.error(f"Error occurred initializing RedditScraper: {e}")
+            raise e
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
         if exception_type:
@@ -91,7 +90,25 @@ class RedditScraper:
         ):
             raise Exception("Invalid URL. Illegal subreddit path")
 
-    def scrape_post(self, post) -> dict:
+        return url
+
+    def validate_posts_limit(self, limit):
+        if limit is None:
+            return True
+
+        # Check if limit is an integer
+        if not isinstance(limit, int):
+            logging.error("Limit must be an integer")
+            return False
+
+        # Check if limit is a positive integer
+        if limit < 1:
+            logging.error(f"Limit must be at least 1. {limit} provided")
+            return False
+
+        return True
+
+    def scrape_post_preview(self, post) -> dict:
         attributes = [
             "permalink",
             "content-href",
@@ -109,34 +126,35 @@ class RedditScraper:
         logging.info(f"Scraping post titled: {post.get_attribute('post-title')}")
         content = {attr: post.get_attribute(attr) for attr in attributes}
 
+        return content
+
+    def scrape_post_content(self, url: str):
         # Build driver
         driver = self.build_web_driver(headless=True)
-
-        #  Visit the posts url
-        url = urljoin("https://www.reddit.com", content["permalink"])
         driver.get(url)
 
-        print(driver.title)
+        # Find all 'shreddit-post' elements
+        post_elements = driver.find_elements(By.TAG_NAME, "shreddit-post")
+
+        # Print the HTML of each 'shreddit-post' element
+        for index, post in enumerate(post_elements):
+            print(post.find_elements(By.CLASS_NAME, "text-neutral-content"))
+            html_content = post.get_attribute("outerHTML")
+            print(f"HTML content of post {index + 1}:\n{html_content}\n")
 
         self.quit_web_driver(driver=driver)
 
-        return content
+    def get_post(self, post):
+        try:
+            preview_content = self.scrape_post_preview(post)
 
-    def validate_posts_limit(self, limit):
-        if limit is None:
-            return True
+            # Create the post url
+            post_url = urljoin("https://www.reddit.com", preview_content["permalink"])
 
-        # Check if limit is an integer
-        if not isinstance(limit, int):
-            logging.error("Limit must be an integer")
-            return False
+            post_content = self.scrape_post_content(post_url)
 
-        # Check if limit is a positive integer
-        if limit < 1:
-            logging.error(f"Limit must be at least 1. {limit} provided")
-            return False
-
-        return True
+        except Exception as e:
+            logging.error(f"An error has occurred: {e}")
 
     def get_posts(self, limit=None):
         if not self.validate_posts_limit(limit):
@@ -165,7 +183,7 @@ class RedditScraper:
                 # Slice the post_elements list to get the posts to add
                 posts_to_add = post_elements[start_index:end_index]
 
-                posts.extend(executor.map(self.scrape_post, posts_to_add))
+                posts.extend(executor.map(self.get_post, posts_to_add))
 
                 if limit is not None and len(posts) >= limit:
                     break
