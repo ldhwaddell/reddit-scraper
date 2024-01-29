@@ -7,6 +7,7 @@ import traceback
 from urllib.parse import urlparse, urljoin
 
 
+from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -79,7 +80,7 @@ class RedditScraper:
         else:
             logging.error("WebDriver not initialized.")
 
-    def validate_reddit_url(self, url):
+    def validate_reddit_url(self, url: str):
         parts = urlparse(url)
 
         if not re.search(r"www\.reddit\.com", parts.netloc):
@@ -108,7 +109,7 @@ class RedditScraper:
 
         return True
 
-    def scrape_post_preview(self, post) -> dict:
+    def scrape_post_tag(self, post) -> dict:
         attributes = [
             "permalink",
             "content-href",
@@ -122,39 +123,107 @@ class RedditScraper:
             "author",
         ]
 
-        # Get all content from preview
-        logging.info(f"Scraping post titled: {post.get_attribute('post-title')}")
         content = {attr: post.get_attribute(attr) for attr in attributes}
 
         return content
 
-    def scrape_post_content(self, url: str):
-        # Build driver
-        driver = self.build_web_driver(headless=True)
-        driver.get(url)
+    def scrape_post_content(self, driver: webdriver.Chrome):
+        try:
+            # Find the 'shreddit-post' element
+            post = driver.find_element(By.TAG_NAME, "shreddit-post")
 
-        # Find all 'shreddit-post' elements
-        post_elements = driver.find_elements(By.TAG_NAME, "shreddit-post")
+            # Locate the main post text
+            text = post.find_element(By.CSS_SELECTOR, "div.text-neutral-content")
+            html = text.get_attribute("innerHTML")
 
-        # Print the HTML of each 'shreddit-post' element
-        for index, post in enumerate(post_elements):
-            print(post.find_elements(By.CLASS_NAME, "text-neutral-content"))
-            html_content = post.get_attribute("outerHTML")
-            print(f"HTML content of post {index + 1}:\n{html_content}\n")
+            soup = BeautifulSoup(html, "html.parser")
 
-        self.quit_web_driver(driver=driver)
+            formatted_text = ""
+            for element in soup.find_all(["p", "h1", "h2", "h3", "ul", "li"]):
+                # Skip elements with nested tags to text is not extracted twice
+                if element.find(["p", "h1", "h2", "h3", "ul", "li"]):
+                    continue
+
+                if element.name.startswith("h"):
+                    formatted_text += f"\n{element.get_text().strip()}\n"
+                elif element.name == "p":
+                    formatted_text += f"\n{element.get_text().strip()}"
+                elif element.name in ["ul", "li"]:
+                    formatted_text += f"\n{element.get_text().strip()}"
+
+            return formatted_text
+        except NoSuchElementException:
+            logging.warn(f"This post does not have any text")
+            return None
+
+    def scrape_post_comments(self, driver: webdriver.Chrome):
+        scraped_comments = set()
+        all_comments = []
+
+        while True:
+            # Find all comments
+            comment_elements = driver.find_elements(
+                By.XPATH, "//shreddit-comment[@depth='0']"
+            )
+
+            for comment in comment_elements:
+                thingid = comment.get_attribute("thingid")
+
+                # Process only new comments
+                if thingid not in scraped_comments:
+                    scraped_comments.add(thingid)
+
+                    # Scrape entire thread here
+
+                    # all_comments.append(comment.text)
+
+            last_height = driver.execute_script(
+                "return document.body.scrollHeight"
+            )
+
+            # Scroll down
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+            # Add a delay to allow the page to load
+            sleep = round(random.uniform(1, 4), 3)
+            logging.info(f"Sleeping for {sleep} seconds")
+            time.sleep(sleep)
+
+            # Calculate new scroll height and compare with last scroll height
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            print(f"last_height: {last_height}")
+            print(f"new_height: {new_height}")
+
+            # Break the loop if we've reached the bottom of the page
+            if new_height == last_height:
+                break
+
+        print(scraped_comments)
 
     def get_post(self, post):
         try:
-            preview_content = self.scrape_post_preview(post)
+            tag_content = self.scrape_post_tag(post)
+            logging.info(f"Scraping post titled: {tag_content['post-title']}")
 
             # Create the post url
-            post_url = urljoin("https://www.reddit.com", preview_content["permalink"])
+            post_url = urljoin("https://www.reddit.com", tag_content["permalink"])
 
-            post_content = self.scrape_post_content(post_url)
+            # Build the driver
+            driver = self.build_web_driver(headless=False)
+            driver.get(post_url)
+
+            # post_content = self.scrape_post_content(driver)
+            post_comments = self.scrape_post_comments(driver)
 
         except Exception as e:
-            logging.error(f"An error has occurred: {e}")
+            logging.error(
+                f"Unable to scrape post at: {post}. An error has occurred: {e}"
+            )
+            return None
+
+        finally:
+            # Ensure driver quits
+            self.quit_web_driver(driver=driver)
 
     def get_posts(self, limit=None):
         if not self.validate_posts_limit(limit):
