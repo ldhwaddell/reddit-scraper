@@ -273,6 +273,7 @@ class RedditScraper:
             logging.error(
                 f"Unable to scrape post at: {post}. An error has occurred: {e}"
             )
+            # Could return url for later retry logic
             return None
 
     def get_posts(
@@ -307,6 +308,7 @@ class RedditScraper:
                     posts_to_scrape = []
 
                     # Possible room for improv, remove set?
+                    # Start at len(scraped_posts) to stop iteration over previously seen posts
                     for post_element in post_elements[len(scraped_posts) :]:
                         id = post_element.get_attribute("id")
 
@@ -324,6 +326,7 @@ class RedditScraper:
                     if limit is not None and len(post_ids) == limit:
                         break
 
+                    # Exit loop if page is unable to scroll down more
                     if not self.scroll_page():
                         break
 
