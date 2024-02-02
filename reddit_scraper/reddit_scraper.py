@@ -197,6 +197,7 @@ class RedditScraper:
             "post-type",
             "score",
             "author",
+            "id"
         ]
 
         content = {attr: post.get_attribute(attr) for attr in attributes}
