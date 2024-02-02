@@ -256,12 +256,12 @@ class RedditScraper:
             content = {"tag": self.scrape_post_tag(post)}
             logging.info(f"Scraping post titled: {content['tag']['post-title']}")
 
-            content["tag"]["url"] = urljoin(
+            content["url"] = urljoin(
                 "https://www.reddit.com", content["tag"]["permalink"]
             )
 
             with self.build_web_driver(headless=True) as driver:
-                driver.get(content["tag"]["url"])
+                driver.get(content["url"])
                 content["post"] = self.scrape_post_content(driver)
 
                 # TODO: implement
