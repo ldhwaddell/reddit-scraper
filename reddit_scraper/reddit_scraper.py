@@ -103,6 +103,7 @@ class RedditScraper:
             user_agent = UserAgent()
             options.add_argument(f"user-agent={user_agent.random}")
             options.add_argument("--headless")
+            options.add_argument("window-size=1920,1080")
 
         return webdriver.Chrome(options=options)
 
@@ -204,7 +205,9 @@ class RedditScraper:
 
         return content
 
-    def scrape_post_content(self, driver: webdriver.Chrome) -> Optional[str]:
+    def scrape_post_content(
+        self, driver: webdriver.Chrome, post_id: str
+    ) -> Optional[str]:
         """
         Scrapes the content of a post. Method locates a post element by tag name and extracts and formats
         main text content. Skips elements with nested tags to avoid extracting text multiple times.
@@ -217,10 +220,11 @@ class RedditScraper:
             # Find the 'shreddit-post' element
             post = driver.find_element(By.TAG_NAME, "shreddit-post")
 
-            # Locate the main post text
-            text = post.find_element(By.CSS_SELECTOR, "div.text-neutral-content")
+            text = post.find_element(
+                By.CSS_SELECTOR, f"div[id]:not(#{post_id}-overflow-cover)"
+            )
+            
             html = text.get_attribute("innerHTML")
-
             soup = BeautifulSoup(html, "html.parser")
 
             formatted_text = ""
@@ -239,7 +243,6 @@ class RedditScraper:
             return formatted_text
         except NoSuchElementException:
             # Meaning there is no body text
-
             return None
 
     def get_post(
@@ -262,7 +265,7 @@ class RedditScraper:
 
             with self.build_web_driver(headless=True) as driver:
                 driver.get(content["url"])
-                content["post"] = self.scrape_post_content(driver)
+                content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
                 # TODO: implement
                 if get_comments:
