@@ -223,7 +223,7 @@ class RedditScraper:
             text = post.find_element(
                 By.CSS_SELECTOR, f"div[id]:not(#{post_id}-overflow-cover)"
             )
-            
+
             html = text.get_attribute("innerHTML")
             soup = BeautifulSoup(html, "html.parser")
 
@@ -245,6 +245,37 @@ class RedditScraper:
             # Meaning there is no body text
             return None
 
+    def scrape_comments(self, driver: webdriver.Chrome) -> Dict:
+        all_comments = {}
+        comments = driver.find_elements(By.TAG_NAME, "shreddit-comment")
+
+        if not comments:
+            return all_comments
+
+        for comment in comments:
+            depth = comment.get_attribute("depth")
+
+            # Only want to add parent comments as keys of the all_comments dict.
+            # Comments with depth > 0 are children and should be inside of the respective
+            # parent dict entry
+            if depth == "0":
+                id = comment.get_attribute("thingid")
+                author = comment.get_attribute("author")
+                score = comment.get_attribute("score")
+                replies = self.scrape_child_comments(level=1)
+                all_comments[id] = {
+                    "author": author,
+                    "score": score,
+                    "replies": replies,
+                }
+
+        return all_comments
+
+    def scrape_child_comments(self, driver: webdriver.Chrome, level):
+        # This will neeed to be recursive
+        # Find allshreddit inside of 
+        ...
+
     def get_post(
         self, post: WebElement, get_comments: bool
     ) -> Optional[Dict[str, Dict]]:
@@ -252,7 +283,7 @@ class RedditScraper:
         Scrapes content from a specific post and optionally its comments.
 
         :param post: A WebElement representing the post to be scraped.
-        :param get_comments: A boolean indicating whether to scrape comments for the post.
+        :param max_comments: indicates the max number of comments to scrape from a post
         :return: A dictionary containing the scraped content of the post and optionally its comments, or None if an error occurs.
         """
         try:
@@ -267,11 +298,10 @@ class RedditScraper:
                 driver.get(content["url"])
                 content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
-                # TODO: implement
                 if get_comments:
-                    # Placeholder for comments scraping logic
-                    # content["comments"] = self.scrape_comments(driver)
-                    pass
+                    comments = self.scrape_comments(driver)
+                    print(comments)
+                    content["comments"] = comments
 
             return content
 
