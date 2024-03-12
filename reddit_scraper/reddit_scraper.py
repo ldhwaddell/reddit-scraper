@@ -1,6 +1,8 @@
 import logging
+import os
 import random
 import re
+import shutil
 import time
 import traceback
 from concurrent import futures
@@ -10,6 +12,7 @@ from urllib.parse import urlparse, urljoin
 
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
@@ -271,13 +274,39 @@ class RedditScraper:
 
         return all_comments
 
-    def scrape_child_comments(self, driver: webdriver.Chrome, level):
+    def scrape_child_comments(self, driver: webdriver.Chrome, level: int):
         # This will neeed to be recursive
-        # Find allshreddit inside of 
+        # Find all shreddit inside of
         ...
 
+    def download_images(
+        self, content: Dict[str, Dict], download_images_dir: str
+    ) -> None:
+        try:
+            # Make the dir to save the files in if it does not exist
+            os.makedirs(download_images_dir, exist_ok=True)
+
+            id = content["tag"]["id"]
+            content_href = content["tag"]["content-href"]
+            pattern = re.compile(
+                r"https?://.*\.(png|jpg|jpeg|gif|bmp|webp)$", re.IGNORECASE
+            )
+            if pattern.match(content_href):
+                res = requests.get(content_href, stream=True)
+
+                if res.status_code == 200:
+                    # Need to properly define filename
+                    with open(f, "wb") as f:
+                        shutil.copyfileobj(res.raw, f)
+                    logging.log(f"Successfully downloaded image: {id}")
+                else:
+                    logging.warning(f"Unable to download image for {id}. Skipping")
+
+        except Exception as e:
+            logging.error(f"Error: {e}")
+
     def get_post(
-        self, post: WebElement, get_comments: bool
+        self, post: WebElement, get_comments: bool, download_images_dir: str
     ) -> Optional[Dict[str, Dict]]:
         """
         Scrapes content from a specific post and optionally its comments.
@@ -300,8 +329,10 @@ class RedditScraper:
 
                 if get_comments:
                     comments = self.scrape_comments(driver)
-                    print(comments)
                     content["comments"] = comments
+
+                if download_images_dir:
+                    self.download_images(content, download_images_dir)
 
             return content
 
@@ -313,7 +344,10 @@ class RedditScraper:
             return None
 
     def get_posts(
-        self, limit: Optional[int] = None, get_comments: bool = False
+        self,
+        limit: Optional[int] = None,
+        get_comments: bool = False,
+        download_images_dir: str = "",
     ) -> List[Dict]:
         """
         Retrieves and scrapes a specified number of posts from a Reddit page.
@@ -354,7 +388,9 @@ class RedditScraper:
 
                     scraped_posts.extend(
                         executor.map(
-                            lambda post: self.get_post(post, get_comments),
+                            lambda post: self.get_post(
+                                post, get_comments, download_images_dir
+                            ),
                             posts_to_scrape,
                         )
                     )
