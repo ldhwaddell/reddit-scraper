@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import os
 import random
 import re
@@ -53,7 +54,6 @@ class RedditScraper:
         :raises Exception: For any other errors during initialization.
         """
         try:
-            # Try to build WebDriver
             self.driver = self.build_web_driver(headless=self.headless)
             self.driver.get(self.url)
             return self
@@ -116,13 +116,10 @@ class RedditScraper:
 
         :param driver: The instance of Chrome WebDriver to be quit.
         """
-        if driver:
-            try:
-                driver.quit()
-            except WebDriverException as e:
-                logging.error(f"Failed to close WebDriver: {e}")
-        else:
-            logging.error("WebDriver not initialized.")
+        try:
+            driver.quit()
+        except WebDriverException as e:
+            logging.error(f"Failed to close WebDriver: {e}")
 
     def validate_reddit_url(self, url: str) -> str:
         """
@@ -253,7 +250,7 @@ class RedditScraper:
         comments = driver.find_elements(By.TAG_NAME, "shreddit-comment")
 
         if not comments:
-            return all_comments
+            return {}
 
         for comment in comments:
             depth = comment.get_attribute("depth")
@@ -276,31 +273,51 @@ class RedditScraper:
 
     def scrape_child_comments(self, driver: webdriver.Chrome, level: int):
         # This will neeed to be recursive
-        # Find all shreddit inside of
         ...
 
     def download_images(
         self, content: Dict[str, Dict], download_images_dir: str
-    ) -> None:
+    ) -> Optional[str]:
+        """
+        Downloads images from a post content if a valid image URL is found.
+
+        :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
+        :param download_images_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
+
+        :return: Path of the downloaded image if download successful, else nothing
+        :raises Exception: Any exception encountered during the download process is logged as an error.
+        """
+
         try:
             # Make the dir to save the files in if it does not exist
             os.makedirs(download_images_dir, exist_ok=True)
 
             id = content["tag"]["id"]
             content_href = content["tag"]["content-href"]
+
             pattern = re.compile(
                 r"https?://.*\.(png|jpg|jpeg|gif|bmp|webp)$", re.IGNORECASE
             )
-            if pattern.match(content_href):
-                res = requests.get(content_href, stream=True)
+            if not pattern.match(content_href):
+                return 
 
-                if res.status_code == 200:
-                    # Need to properly define filename
-                    with open(f, "wb") as f:
-                        shutil.copyfileobj(res.raw, f)
-                    logging.log(f"Successfully downloaded image: {id}")
-                else:
-                    logging.warning(f"Unable to download image for {id}. Skipping")
+            # TODO: Check for reddit gallery, scrape list of pics
+            
+            res = requests.get(content_href, stream=True)
+
+            if res.status_code == 200:
+                # Guess file extension from response headers
+                header = res.headers
+                ext = mimetypes.guess_extension(header["content-type"])
+                f_path = os.path.join(download_images_dir, id + ext)
+
+                with open(f_path, "wb") as f:
+                    shutil.copyfileobj(res.raw, f)
+                logging.info(f"Successfully downloaded post content: {f_path}")
+
+                return f_path
+            else:
+                logging.warning(f"Unable to download image for {id}. Skipping")
 
         except Exception as e:
             logging.error(f"Error: {e}")
@@ -309,11 +326,13 @@ class RedditScraper:
         self, post: WebElement, get_comments: bool, download_images_dir: str
     ) -> Optional[Dict[str, Dict]]:
         """
-        Scrapes content from a specific post and optionally its comments.
+        Scrapes content from a specific post. Optionally scrapes the comments and image contents
 
         :param post: A WebElement representing the post to be scraped.
-        :param max_comments: indicates the max number of comments to scrape from a post
-        :return: A dictionary containing the scraped content of the post and optionally its comments, or None if an error occurs.
+        :param get_comments: indicates to scrape comments from a post
+        :param download_images_dir: indicates to donwload images from a post
+
+        :return: A dictionary containing the scraped content of the post,  or None if an error occurs.
         """
         try:
             content = {"tag": self.scrape_post_tag(post)}
@@ -323,16 +342,17 @@ class RedditScraper:
                 "https://www.reddit.com", content["tag"]["permalink"]
             )
 
-            with self.build_web_driver(headless=True) as driver:
-                driver.get(content["url"])
-                content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
+            driver = self.build_web_driver(headless=True)
+            driver.get(content["url"])
+            content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
-                if get_comments:
-                    comments = self.scrape_comments(driver)
-                    content["comments"] = comments
+            if get_comments:
+                comments = self.scrape_comments(driver)
+                content["comments"] = comments
 
-                if download_images_dir:
-                    self.download_images(content, download_images_dir)
+            if download_images_dir:
+                image_path = self.download_images(content, download_images_dir)
+                content["image_path"] = image_path
 
             return content
 
@@ -342,6 +362,8 @@ class RedditScraper:
             )
             # Could return url for later retry logic
             return None
+        finally:
+            self.quit_web_driver(driver)
 
     def get_posts(
         self,
@@ -350,10 +372,11 @@ class RedditScraper:
         download_images_dir: str = "",
     ) -> List[Dict]:
         """
-        Retrieves and scrapes a specified number of posts from a Reddit page.
+        Retrieves and scrapes a specified number of posts from a Reddit page. Handles scrolling logic
 
         :param limit: The maximum number of posts to scrape. If None, no limit is applied.
         :param get_comments: Whether to scrape comments for each post.
+
         :return: A list of dictionaries, each containing data about a scraped post.
         """
         if not self.validate_posts_limit(limit):
