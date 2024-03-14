@@ -15,6 +15,17 @@ if __name__ == "__main__":
 
 ```
 
+### Roadmap
+| Item                                             | Status      |
+|--------------------------------------------------|-------------|
+| Allow user to scrape specific number of posts    | Complete    |
+| Allow user to scrape all posts in a subreddit    | Complete    |
+| Allow user to download images, gifs              | Complete    |
+| Allow user to download image galleries           | In Progress |
+| Allow user to scrape specific number of comments | In Progress |
+| Allow user to scrape all comments on a post      | In Progress |
+| Save scraped content to a relational database    | Planned     |
+
 ### Before Using!
 
 Currently, urlib3 (used internally by selenium) defaults to HTTP and HTTPS connections pools with a max of 1 connection that can be reused:
