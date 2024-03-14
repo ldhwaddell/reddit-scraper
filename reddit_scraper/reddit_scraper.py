@@ -141,9 +141,9 @@ class RedditScraper:
 
         return url
 
-    def validate_posts_limit(self, limit: Optional[int]) -> bool:
+    def validate_limit(self, limit: Optional[int]) -> bool:
         """
-        Validates the limit for the number of posts to scrape.
+        Validates the limit for the number of posts or comments to scrape.
 
         :param limit: The limit for the number of posts to scrape. Can be None for no limit.
         :return: True if the limit is valid, False otherwise.
@@ -245,7 +245,7 @@ class RedditScraper:
             # Meaning there is no body text
             return None
 
-    def scrape_comments(self, driver: webdriver.Chrome) -> Dict:
+    def scrape_comments(self, driver: webdriver.Chrome, comment_limit: int) -> Dict:
         all_comments = {}
         comments = driver.find_elements(By.TAG_NAME, "shreddit-comment")
 
@@ -299,10 +299,10 @@ class RedditScraper:
                 r"https?://.*\.(png|jpg|jpeg|gif|bmp|webp)$", re.IGNORECASE
             )
             if not pattern.match(content_href):
-                return 
+                return
 
             # TODO: Check for reddit gallery, scrape list of pics
-            
+
             res = requests.get(content_href, stream=True)
 
             if res.status_code == 200:
@@ -323,16 +323,16 @@ class RedditScraper:
             logging.error(f"Error: {e}")
 
     def get_post(
-        self, post: WebElement, get_comments: bool, download_images_dir: str
+        self, post: WebElement, comment_limit: int, download_images_dir: str
     ) -> Optional[Dict[str, Dict]]:
         """
         Scrapes content from a specific post. Optionally scrapes the comments and image contents
 
         :param post: A WebElement representing the post to be scraped.
-        :param get_comments: indicates to scrape comments from a post
+        :param comment_limit: The max number of comments to scrape from a post
         :param download_images_dir: indicates to donwload images from a post
 
-        :return: A dictionary containing the scraped content of the post,  or None if an error occurs.
+        :return: A dictionary containing the scraped content of the post, or None if an error occurs.
         """
         try:
             content = {"tag": self.scrape_post_tag(post)}
@@ -346,8 +346,8 @@ class RedditScraper:
             driver.get(content["url"])
             content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
-            if get_comments:
-                comments = self.scrape_comments(driver)
+            if comment_limit:
+                comments = self.scrape_comments(driver, comment_limit)
                 content["comments"] = comments
 
             if download_images_dir:
@@ -368,22 +368,21 @@ class RedditScraper:
     def get_posts(
         self,
         limit: Optional[int] = None,
-        get_comments: bool = False,
+        comment_limit: int = 0,
         download_images_dir: str = "",
     ) -> List[Dict]:
         """
         Retrieves and scrapes a specified number of posts from a Reddit page. Handles scrolling logic
 
         :param limit: The maximum number of posts to scrape. If None, no limit is applied.
-        :param get_comments: Whether to scrape comments for each post.
+        :param comment_limit: The maximum number of comments to scrape per post. If None, no limit is applied.
 
         :return: A list of dictionaries, each containing data about a scraped post.
         """
-        if not self.validate_posts_limit(limit):
+        if not self.validate_limit(limit):
             return []
 
-        if not isinstance(get_comments, bool):
-            logging.error("get_comments must be True or False")
+        if not self.validate_limit(comment_limit):
             return []
 
         post_ids = set()
@@ -412,7 +411,7 @@ class RedditScraper:
                     scraped_posts.extend(
                         executor.map(
                             lambda post: self.get_post(
-                                post, get_comments, download_images_dir
+                                post, comment_limit, download_images_dir
                             ),
                             posts_to_scrape,
                         )
