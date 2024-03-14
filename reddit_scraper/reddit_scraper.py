@@ -157,8 +157,8 @@ class RedditScraper:
             return False
 
         # Check if limit is a positive integer
-        if limit < 1:
-            logging.error(f"Limit must be at least 1. {limit} provided")
+        if limit < 0:
+            logging.error(f"Limit cannot be negative. {limit} provided")
             return False
 
         return True
@@ -262,7 +262,7 @@ class RedditScraper:
                 id = comment.get_attribute("thingid")
                 author = comment.get_attribute("author")
                 score = comment.get_attribute("score")
-                replies = self.scrape_child_comments(level=1)
+                replies = self.scrape_child_comments(driver, level=1)
                 all_comments[id] = {
                     "author": author,
                     "score": score,
@@ -367,7 +367,7 @@ class RedditScraper:
 
     def get_posts(
         self,
-        limit: Optional[int] = None,
+        limit: Optional[int] = 5,
         comment_limit: int = 0,
         download_images_dir: str = "",
     ) -> List[Dict]:
