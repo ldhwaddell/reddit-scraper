@@ -1,9 +1,6 @@
 import logging
-import mimetypes
-import os
 import random
 import re
-import shutil
 import time
 import traceback
 from concurrent import futures
@@ -25,6 +22,8 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 
+# from comments import CommentScraper
+from .media import MediaScraper
 
 # Set up logger
 logger = logging.basicConfig(
@@ -246,134 +245,6 @@ class RedditScraper:
             # Meaning there is no body text
             return None
 
-    def scrape_comments(self, driver: webdriver.Chrome, comment_limit: int) -> Dict:
-        all_comments = {}
-        comments = driver.find_elements(By.TAG_NAME, "shreddit-comment")
-
-        if not comments:
-            return {}
-
-        for comment in comments:
-            depth = comment.get_attribute("depth")
-
-            # Only want to add parent comments as keys of the all_comments dict.
-            # Comments with depth > 0 are children and should be inside of the respective
-            # parent dict entry
-            if depth == "0":
-                id = comment.get_attribute("thingid")
-                author = comment.get_attribute("author")
-                score = comment.get_attribute("score")
-                replies = self.scrape_child_comments(driver, level=1)
-                all_comments[id] = {
-                    "author": author,
-                    "score": score,
-                    "replies": replies,
-                }
-
-        return all_comments
-
-    def scrape_child_comments(self, driver: webdriver.Chrome, level: int):
-        # This will neeed to be recursive
-        ...
-
-    def download_media(
-        self,
-        driver: webdriver.Chrome,
-        content: Dict[str, Dict],
-        download_media_dir: str,
-    ) -> Optional[List[str]]:
-        """
-        Downloads media from a post if a valid  URL is found.
-
-        :param driver: The instance of Chrome WebDriver to use to search the page
-        :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
-        :param download_media_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
-
-        :return: Path of the downloaded image if download successful, else nothing
-        :raises Exception: Any exception encountered during the download process is logged as an error.
-        """
-
-        try:
-            # The URL of the media to download
-            content_href = content["tag"]["content-href"]
-
-            # The id of the post
-            id = content["tag"]["id"]
-
-            # The URLs of media to download
-            media_urls = []
-
-            # Check if URL is single media or gallery
-            gallery_pattern = re.compile(
-                r"^https?://(www\.)?reddit\.com/gallery/[A-Za-z0-9_]+$", re.IGNORECASE
-            )
-
-            # Check if media url is valid format
-            media_pattern = re.compile(
-                r"^https?://.*\.(png|jpg|jpeg|gif|bmp|webp)(\?.*)?$", re.IGNORECASE
-            )
-
-            # Extract image name from gallery
-            name_pattern = re.compile(r".*-(.*?)\.")
-
-            # If post is a gallery, extract all of the gallery image URLs
-            if gallery_pattern.match(content_href):
-                gallery_carousel = driver.find_element(By.TAG_NAME, "gallery-carousel")
-
-                if not gallery_carousel:
-                    logging.warning(f"No gallery carousel found for post: {id}")
-                    return None
-
-                gallery_images = gallery_carousel.find_elements(
-                    By.CSS_SELECTOR, "img.absolute"
-                )
-                for img in gallery_images:
-                    src = img.get_attribute("src")
-                    if src and media_pattern.match(src):
-                        name = name_pattern.match(src).group(1)
-                        media_urls.append((src, name))
-
-            # Not a gallery, single URL
-            elif media_pattern.match(content_href):
-                media_urls.append((content_href, id))
-
-            # Post has no media, can skip
-            else:
-                return None
-
-            # Make the dir to save the files in if it does not exist
-            os.makedirs(os.path.join(download_media_dir, id), exist_ok=True)
-
-            media_paths = []
-            for url, name in media_urls:
-
-                res = requests.get(url, stream=True)
-
-                if not res.status_code == 200:
-                    logging.warning(f"Unable to download image for {id}. Skipping")
-                    continue
-
-                # Guess file extension from response headers
-                header = res.headers
-                ext = mimetypes.guess_extension(header["content-type"])
-                f_path = os.path.join(
-                    download_media_dir,
-                    id,
-                    name + ext,
-                )
-                # Save media
-                with open(f_path, "wb") as f:
-                    shutil.copyfileobj(res.raw, f)
-
-                logging.info(f"Successfully downloaded post content: {f_path}")
-                media_paths.append(f_path)
-
-            return media_paths
-
-        except Exception as e:
-            logging.error(f"Error: {e}")
-            return None
-
     def get_post(
         self, post: WebElement, comment_limit: int, download_media_dir: str
     ) -> Optional[Dict[str, Dict]]:
@@ -400,11 +271,11 @@ class RedditScraper:
             content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
             if comment_limit:
-                comments = self.scrape_comments(driver, comment_limit)
-                content["comments"] = comments
+                logging.info("NOT IMPLEMENTED")
 
             if download_media_dir:
-                media_path = self.download_media(driver, content, download_media_dir)
+                media_scraper = MediaScraper(driver)
+                media_path = media_scraper.download_media(content, download_media_dir)
                 content["media_path"] = media_path
 
             return content
