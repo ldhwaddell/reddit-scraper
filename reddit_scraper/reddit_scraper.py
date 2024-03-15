@@ -1,5 +1,3 @@
-import string
-
 import logging
 import mimetypes
 import os
@@ -296,14 +294,11 @@ class RedditScraper:
         """
 
         try:
-            # The id of the post
-            id = content["tag"]["id"]
-
-            # Make the dir to save the files in if it does not exist
-            os.makedirs(os.path.join(download_media_dir, id), exist_ok=True)
-
             # The URL of the media to download
             content_href = content["tag"]["content-href"]
+
+            # The id of the post
+            id = content["tag"]["id"]
 
             # The URLs of media to download
             media_urls = []
@@ -334,44 +329,44 @@ class RedditScraper:
                 )
                 for img in gallery_images:
                     src = img.get_attribute("src")
-                    if src:
+                    if src and media_pattern.match(src):
                         name = name_pattern.match(src).group(1)
                         media_urls.append((src, name))
 
             # Not a gallery, single URL
-            else:
+            elif media_pattern.match(content_href):
                 media_urls.append((content_href, id))
+
+            # Post has no media, can skip
+            else:
+                return None
+
+            # Make the dir to save the files in if it does not exist
+            os.makedirs(os.path.join(download_media_dir, id), exist_ok=True)
 
             media_paths = []
             for url, name in media_urls:
 
-                if not media_pattern.match(url):
-                    logging.warning(
-                        f"URL file type did not validate for post {id}. Skipping"
-                    )
-                    continue
-
                 res = requests.get(url, stream=True)
 
-                if res.status_code == 200:
-                    # Guess file extension from response headers
-                    header = res.headers
-                    ext = mimetypes.guess_extension(header["content-type"])
-                    f_path = os.path.join(
-                        download_media_dir,
-                        id,
-                        name + ext,
-                    )
-                    # Save media
-                    with open(f_path, "wb") as f:
-                        shutil.copyfileobj(res.raw, f)
-
-                    logging.info(f"Successfully downloaded post content: {f_path}")
-                    media_paths.append(f_path)
-
-                else:
+                if not res.status_code == 200:
                     logging.warning(f"Unable to download image for {id}. Skipping")
                     continue
+
+                # Guess file extension from response headers
+                header = res.headers
+                ext = mimetypes.guess_extension(header["content-type"])
+                f_path = os.path.join(
+                    download_media_dir,
+                    id,
+                    name + ext,
+                )
+                # Save media
+                with open(f_path, "wb") as f:
+                    shutil.copyfileobj(res.raw, f)
+
+                logging.info(f"Successfully downloaded post content: {f_path}")
+                media_paths.append(f_path)
 
             return media_paths
 
