@@ -30,7 +30,8 @@ from selenium.common.exceptions import (
 
 # Set up logger
 logger = logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(name)-8s %(levelname)-8s %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s %(name)-8s %(levelname)-8s [%(funcName)s:%(lineno)d] %(message)s",
 )
 
 
