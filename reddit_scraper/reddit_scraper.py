@@ -1,3 +1,5 @@
+import string
+
 import logging
 import mimetypes
 import os
@@ -173,7 +175,7 @@ class RedditScraper:
         last_height = self.driver.execute_script("return document.body.scrollHeight")
         self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
-        sleep_duration = round(random.uniform(1, 3), 3)
+        sleep_duration = round(random.uniform(2, 4), 3)
         logging.info(f"Sleeping for {sleep_duration} seconds")
         time.sleep(sleep_duration)
 
@@ -269,7 +271,6 @@ class RedditScraper:
                     "replies": replies,
                 }
 
-        print(all_comments)
         return all_comments
 
     def scrape_child_comments(self, driver: webdriver.Chrome, level: int):
@@ -281,10 +282,11 @@ class RedditScraper:
         driver: webdriver.Chrome,
         content: Dict[str, Dict],
         download_media_dir: str,
-    ) -> Optional[str]:
+    ) -> Optional[List[str]]:
         """
-        Downloads images from a post content if a valid image URL is found.
+        Downloads media from a post if a valid  URL is found.
 
+        :param driver: The instance of Chrome WebDriver to use to search the page
         :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
         :param download_media_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
 
@@ -293,53 +295,88 @@ class RedditScraper:
         """
 
         try:
-            # Make the dir to save the files in if it does not exist
-            os.makedirs(download_media_dir, exist_ok=True)
-
+            # The id of the post
             id = content["tag"]["id"]
+
+            # Make the dir to save the files in if it does not exist
+            os.makedirs(os.path.join(download_media_dir, id), exist_ok=True)
+
+            # The URL of the media to download
             content_href = content["tag"]["content-href"]
 
-            # Check if downloading a single image or gallery
-            gallery_pattern = re.compile(r"^https?://(www\.)?reddit\.com/gallery/[A-Za-z0-9_]+$")
+            # The URLs of media to download
+            media_urls = []
 
+            # Check if URL is single media or gallery
+            gallery_pattern = re.compile(
+                r"^https?://(www\.)?reddit\.com/gallery/[A-Za-z0-9_]+$", re.IGNORECASE
+            )
+
+            # Check if media url is valid format
+            media_pattern = re.compile(
+                r"^https?://.*\.(png|jpg|jpeg|gif|bmp|webp)(\?.*)?$", re.IGNORECASE
+            )
+
+            # Extract image name from gallery
+            name_pattern = re.compile(r".*-(.*?)\.")
+
+            # If post is a gallery, extract all of the gallery image URLs
             if gallery_pattern.match(content_href):
                 gallery_carousel = driver.find_element(By.TAG_NAME, "gallery-carousel")
 
                 if not gallery_carousel:
                     logging.warning(f"No gallery carousel found for post: {id}")
-                    return
+                    return None
 
-                gallery_images = gallery_carousel.find_elements(By.TAG_NAME, "img")
-                for i in gallery_images:
-                    print(i.get_attribute("outerHTML"))
+                gallery_images = gallery_carousel.find_elements(
+                    By.CSS_SELECTOR, "img.absolute"
+                )
+                for img in gallery_images:
+                    src = img.get_attribute("src")
+                    if src:
+                        name = name_pattern.match(src).group(1)
+                        media_urls.append((src, name))
 
-            pattern = re.compile(
-                r"https?://.*\.(png|jpg|jpeg|gif|bmp|webp)$", re.IGNORECASE
-            )
-            if not pattern.match(content_href):
-                return
-
-            # TODO: Check for reddit gallery, scrape list of pics
-
-            res = requests.get(content_href, stream=True)
-
-            if res.status_code == 200:
-                # Guess file extension from response headers
-                header = res.headers
-                ext = mimetypes.guess_extension(header["content-type"])
-                f_path = os.path.join(download_media_dir, id + ext)
-
-                with open(f_path, "wb") as f:
-                    shutil.copyfileobj(res.raw, f)
-                logging.info(f"Successfully downloaded post content: {f_path}")
-
-                return f_path
+            # Not a gallery, single URL
             else:
-                logging.warning(f"Unable to download image for {id}. Skipping")
-                return None
+                media_urls.append((content_href, id))
+
+            media_paths = []
+            for url, name in media_urls:
+
+                if not media_pattern.match(url):
+                    logging.warning(
+                        f"URL file type did not validate for post {id}. Skipping"
+                    )
+                    continue
+
+                res = requests.get(url, stream=True)
+
+                if res.status_code == 200:
+                    # Guess file extension from response headers
+                    header = res.headers
+                    ext = mimetypes.guess_extension(header["content-type"])
+                    f_path = os.path.join(
+                        download_media_dir,
+                        id,
+                        name + ext,
+                    )
+                    # Save media
+                    with open(f_path, "wb") as f:
+                        shutil.copyfileobj(res.raw, f)
+
+                    logging.info(f"Successfully downloaded post content: {f_path}")
+                    media_paths.append(f_path)
+
+                else:
+                    logging.warning(f"Unable to download image for {id}. Skipping")
+                    continue
+
+            return media_paths
 
         except Exception as e:
             logging.error(f"Error: {e}")
+            return None
 
     def get_post(
         self, post: WebElement, comment_limit: int, download_media_dir: str
