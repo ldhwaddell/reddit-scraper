@@ -269,20 +269,24 @@ class RedditScraper:
                     "replies": replies,
                 }
 
+        print(all_comments)
         return all_comments
 
     def scrape_child_comments(self, driver: webdriver.Chrome, level: int):
         # This will neeed to be recursive
         ...
 
-    def download_images(
-        self, content: Dict[str, Dict], download_images_dir: str
+    def download_media(
+        self,
+        driver: webdriver.Chrome,
+        content: Dict[str, Dict],
+        download_media_dir: str,
     ) -> Optional[str]:
         """
         Downloads images from a post content if a valid image URL is found.
 
         :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
-        :param download_images_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
+        :param download_media_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
 
         :return: Path of the downloaded image if download successful, else nothing
         :raises Exception: Any exception encountered during the download process is logged as an error.
@@ -290,10 +294,24 @@ class RedditScraper:
 
         try:
             # Make the dir to save the files in if it does not exist
-            os.makedirs(download_images_dir, exist_ok=True)
+            os.makedirs(download_media_dir, exist_ok=True)
 
             id = content["tag"]["id"]
             content_href = content["tag"]["content-href"]
+
+            # Check if downloading a single image or gallery
+            gallery_pattern = re.compile(r"^https?://(www\.)?reddit\.com/gallery/[A-Za-z0-9_]+$")
+
+            if gallery_pattern.match(content_href):
+                gallery_carousel = driver.find_element(By.TAG_NAME, "gallery-carousel")
+
+                if not gallery_carousel:
+                    logging.warning(f"No gallery carousel found for post: {id}")
+                    return
+
+                gallery_images = gallery_carousel.find_elements(By.TAG_NAME, "img")
+                for i in gallery_images:
+                    print(i.get_attribute("outerHTML"))
 
             pattern = re.compile(
                 r"https?://.*\.(png|jpg|jpeg|gif|bmp|webp)$", re.IGNORECASE
@@ -309,7 +327,7 @@ class RedditScraper:
                 # Guess file extension from response headers
                 header = res.headers
                 ext = mimetypes.guess_extension(header["content-type"])
-                f_path = os.path.join(download_images_dir, id + ext)
+                f_path = os.path.join(download_media_dir, id + ext)
 
                 with open(f_path, "wb") as f:
                     shutil.copyfileobj(res.raw, f)
@@ -318,19 +336,20 @@ class RedditScraper:
                 return f_path
             else:
                 logging.warning(f"Unable to download image for {id}. Skipping")
+                return None
 
         except Exception as e:
             logging.error(f"Error: {e}")
 
     def get_post(
-        self, post: WebElement, comment_limit: int, download_images_dir: str
+        self, post: WebElement, comment_limit: int, download_media_dir: str
     ) -> Optional[Dict[str, Dict]]:
         """
         Scrapes content from a specific post. Optionally scrapes the comments and image contents
 
         :param post: A WebElement representing the post to be scraped.
         :param comment_limit: The max number of comments to scrape from a post
-        :param download_images_dir: indicates to donwload images from a post
+        :param download_media_dir: indicates to donwload media from a post
 
         :return: A dictionary containing the scraped content of the post, or None if an error occurs.
         """
@@ -344,15 +363,16 @@ class RedditScraper:
 
             driver = self.build_web_driver(headless=True)
             driver.get(content["url"])
+
             content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
             if comment_limit:
                 comments = self.scrape_comments(driver, comment_limit)
                 content["comments"] = comments
 
-            if download_images_dir:
-                image_path = self.download_images(content, download_images_dir)
-                content["image_path"] = image_path
+            if download_media_dir:
+                media_path = self.download_media(driver, content, download_media_dir)
+                content["media_path"] = media_path
 
             return content
 
@@ -369,7 +389,7 @@ class RedditScraper:
         self,
         limit: Optional[int] = 5,
         comment_limit: int = 0,
-        download_images_dir: str = "",
+        download_media_dir: str = "",
     ) -> List[Dict]:
         """
         Retrieves and scrapes a specified number of posts from a Reddit page. Handles scrolling logic
@@ -411,7 +431,7 @@ class RedditScraper:
                     scraped_posts.extend(
                         executor.map(
                             lambda post: self.get_post(
-                                post, comment_limit, download_images_dir
+                                post, comment_limit, download_media_dir
                             ),
                             posts_to_scrape,
                         )
