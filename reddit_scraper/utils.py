@@ -1,7 +1,29 @@
 import functools
 import logging
+import random
 import time
 from typing import Callable, Any
+
+from selenium import webdriver
+
+
+def scroll_page(driver: webdriver.Chrome) -> bool:
+    """
+    Scrolls the webpage down one viewport height and waits for new content to load. Checks if the scroll has
+    resulted in new content by comparing the scroll height before and after the scroll.
+
+    :param driver: The websdriver to use to do the scrolling
+    :return: True if new content is loaded (page height increased), False otherwise.
+    """
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+
+    sleep_duration = round(random.uniform(2, 4), 3)
+    logging.info(f"Sleeping for {sleep_duration} seconds")
+    time.sleep(sleep_duration)
+
+    new_height = driver.execute_script("return document.body.scrollHeight")
+    return new_height != last_height
 
 
 def retry(retries: int, retry_sleep_sec: int) -> Callable[..., Any]:

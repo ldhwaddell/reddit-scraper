@@ -10,7 +10,6 @@ from urllib.parse import urlparse, urljoin
 
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
-import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
@@ -24,6 +23,7 @@ from selenium.common.exceptions import (
 
 # from comments import CommentScraper
 from .media import MediaScraper
+from .utils import scroll_page
 
 # Set up logger
 logger = logging.basicConfig(
@@ -162,23 +162,6 @@ class RedditScraper:
             return False
 
         return True
-
-    def scroll_page(self) -> bool:
-        """
-        Scrolls the webpage down one viewport height and waits for new content to load. Checks if the scroll has
-        resulted in new content by comparing the scroll height before and after the scroll.
-
-        :return: True if new content is loaded (page height increased), False otherwise.
-        """
-        last_height = self.driver.execute_script("return document.body.scrollHeight")
-        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-
-        sleep_duration = round(random.uniform(2, 4), 3)
-        logging.info(f"Sleeping for {sleep_duration} seconds")
-        time.sleep(sleep_duration)
-
-        new_height = self.driver.execute_script("return document.body.scrollHeight")
-        return new_height != last_height
 
     def scrape_post_tag(self, post: WebElement) -> Dict[str, str]:
         """
@@ -345,7 +328,7 @@ class RedditScraper:
                         break
 
                     # Exit loop if page is unable to scroll down more
-                    if not self.scroll_page():
+                    if not scroll_page(self.driver):
                         break
 
             except NoSuchElementException as e:
