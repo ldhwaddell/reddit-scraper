@@ -3,9 +3,10 @@ import mimetypes
 import os
 import re
 import shutil
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 import requests
+from requests import Response
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 
@@ -20,23 +21,35 @@ logger = logging.basicConfig(
 
 class MediaScraper:
     def __init__(self, driver: webdriver.Chrome) -> None:
+        """
+        Initializes the MediaScraper with a specified driver
+
+        :param driver: The webdriver to use
+        """
         self.driver = driver
 
-        # Check if URL is single media or gallery
+        # Matches media gallery
         self.gallery_pattern = re.compile(
             r"^https?://(www\.)?reddit\.com/gallery/[A-Za-z0-9_]+$", re.IGNORECASE
         )
 
-        # Check if media url is valid format
+        # Matches valid media types
         self.media_pattern = re.compile(
             r"^https?://.*\.(png|jpg|jpeg|gif|bmp|webp)(\?.*)?$", re.IGNORECASE
         )
 
-        # Extract image name from gallery
+        # Extract image name from gallery URL
         self.name_pattern = re.compile(r".*-(.*?)\.")
 
-    def get_media_urls(self, content_href: str, id: str) -> Optional[List[str]]:
+    def get_media_urls(
+        self, content_href: str, id: str
+    ) -> Optional[List[Tuple[str, str]]]:
+        """
+        Checks if the post contains an image, gallery, or nothing and returns
+        the corresponding list of media URLs
 
+        :return: The list of URLs containing media from the gallery
+        """
         # If post is a gallery, extract all of the gallery image URLs
         if self.gallery_pattern.match(content_href):
             urls = self.get_gallery_urls()
@@ -50,11 +63,9 @@ class MediaScraper:
         else:
             return None
 
-    def get_gallery_urls(self) -> Optional[List[str]]:
+    def get_gallery_urls(self) -> Optional[List[Tuple[str, str]]]:
         """
-        Checks if the post contains an image gallery. If so, returns the list of media URLs
-
-        :param driver: The webdriver the access page content
+        Gets the media URLs from the image gallery
 
         :return: The list of URLs containing media from the gallery
         """
@@ -75,17 +86,34 @@ class MediaScraper:
         return urls
 
     @retry(retries=3, retry_sleep_sec=5)
-    def fetch_and_save(self, url: str, path: str, name: str) -> Optional[str]:
+    def fetch(self, url: str) -> Optional[Response]:
+        """
+        Fetches a URL, streams the response. Raises exception if the status code is invalid.
+
+        :param url: The URL to fetch
+        :return: The response if valid, otherwise raises exception
+        """
         res = requests.get(url, stream=True)
         res.raise_for_status()
+        return res
 
+    def save(self, res: Response, path: str, f_name: str) -> str:
+        """
+        Extract the raw content from a response and saves it to a given directory.
+
+        :param res: The response object to save
+        :param path: The path to save the file
+        :param f_name: The name to save the file as
+        :return: The path the image was saved under
+        """
         # Guess file extension from response headers
         header = res.headers
         ext = mimetypes.guess_extension(header["content-type"])
         f_path = os.path.join(
             path,
-            name + ext,
+            f_name + ext,
         )
+
         # Save media
         with open(f_path, "wb") as f:
             shutil.copyfileobj(res.raw, f)
@@ -97,13 +125,13 @@ class MediaScraper:
         download_media_dir: str,
     ) -> Optional[List[str]]:
         """
-        Downloads media from a post if a valid  URL is found.
+        Retrieves media such as images from the provided URLs in the content dictionary and
+        saves them to the specified directory. Directory is created if it does not already exist.
+        It supports downloading media from both single URLs and Reddit gallery URLs.
 
-        :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
-        :param download_media_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
-
-        :return: Path of the downloaded image if download successful, else nothing
-        :raises Exception: Any exception encountered during the download process is logged as an error.
+        :param content: A dictionary containing the scraped content of a post
+        :param download_media_dir: The directory path where the media should be downloaded and saved.
+        :return: A list of file paths to the downloaded media if the download is successful. Otherwise, None.
         """
 
         # The URL of the media to download
@@ -127,7 +155,8 @@ class MediaScraper:
         for url, name in media_urls:
 
             try:
-                f_path = self.fetch_and_save(url, path, name)
+                res = self.fetch(url)
+                f_path = self.save(res, path, name)
 
                 logging.info(f"Successfully downloaded post content: {f_path}")
                 media_paths.append(f_path)
