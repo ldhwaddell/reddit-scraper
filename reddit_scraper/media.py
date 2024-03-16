@@ -35,13 +35,11 @@ class MediaScraper:
         # Extract image name from gallery
         self.name_pattern = re.compile(r".*-(.*?)\.")
 
-    def get_media_urls(
-        self, driver: webdriver.Chrome, content_href: str, id: str
-    ) -> Optional[List[str]]:
+    def get_media_urls(self, content_href: str, id: str) -> Optional[List[str]]:
 
         # If post is a gallery, extract all of the gallery image URLs
         if self.gallery_pattern.match(content_href):
-            urls = self.get_gallery_urls(driver)
+            urls = self.get_gallery_urls()
             return urls
 
         # Not a gallery, single URL
@@ -52,7 +50,7 @@ class MediaScraper:
         else:
             return None
 
-    def get_gallery_urls(self, driver: webdriver.Chrome) -> Optional[List[str]]:
+    def get_gallery_urls(self) -> Optional[List[str]]:
         """
         Checks if the post contains an image gallery. If so, returns the list of media URLs
 
@@ -60,7 +58,7 @@ class MediaScraper:
 
         :return: The list of URLs containing media from the gallery
         """
-        gallery_carousel = driver.find_element(By.TAG_NAME, "gallery-carousel")
+        gallery_carousel = self.driver.find_element(By.TAG_NAME, "gallery-carousel")
 
         if not gallery_carousel:
             return None
@@ -77,7 +75,7 @@ class MediaScraper:
         return urls
 
     @retry(retries=3, retry_sleep_sec=5)
-    def fetch_and_save(self, url: str, path: str, id: str, name: str) -> Optional[str]:
+    def fetch_and_save(self, url: str, path: str, name: str) -> Optional[str]:
         res = requests.get(url, stream=True)
         res.raise_for_status()
 
@@ -95,14 +93,12 @@ class MediaScraper:
 
     def download_media(
         self,
-        driver: webdriver.Chrome,
         content: Dict[str, Dict],
         download_media_dir: str,
     ) -> Optional[List[str]]:
         """
         Downloads media from a post if a valid  URL is found.
 
-        :param driver: The instance of Chrome WebDriver to use to search the page
         :param content: Dict with scraped content of post. Has an 'id' and a 'content-href' with the image URL.
         :param download_media_dir: Dir where images will be downloaded and saved. Dir created if it does not exist.
 
@@ -117,7 +113,7 @@ class MediaScraper:
         id = content["tag"]["id"]
 
         # Get possible list of URLs to fetch
-        media_urls = self.get_media_urls(driver, content_href, id)
+        media_urls = self.get_media_urls(content_href, id)
 
         if not media_urls:
             logging.warning(f"No media URLs found for: {id}")
@@ -131,7 +127,7 @@ class MediaScraper:
         for url, name in media_urls:
 
             try:
-                f_path = self.fetch_and_save(url, path, id, name)
+                f_path = self.fetch_and_save(url, path, name)
 
                 logging.info(f"Successfully downloaded post content: {f_path}")
                 media_paths.append(f_path)
