@@ -21,7 +21,7 @@ from selenium.common.exceptions import (
     TimeoutException,
 )
 
-# from comments import CommentScraper
+from .comments import CommentScraper
 from .media import MediaScraper
 from .utils import scroll_page
 
@@ -255,6 +255,9 @@ class RedditScraper:
 
             if comment_limit:
                 logging.info("NOT IMPLEMENTED")
+                # comment_scraper = CommentScraper(driver)
+                # comments = comment_scraper.scrape_comments(comment_limit)
+                # content["comments"] = comments
 
             if download_media_dir:
                 media_scraper = MediaScraper(driver)
