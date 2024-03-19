@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -13,6 +13,8 @@ from selenium.common.exceptions import (
 )
 
 from utils import scroll_page
+
+import time
 
 # Set up logger
 logger = logging.basicConfig(
@@ -33,7 +35,6 @@ class CommentScraper:
         :param comment: The webelement representing the comment to scrape information from
         :return: A dict with the relevant comment info
         """
-        # Find "-post-rtjson-content" for the relevant comment
         content = comment.find_element(By.ID, "-post-rtjson-content")
         author = comment.get_attribute("author")
         id = comment.get_attribute("thingid")
@@ -41,6 +42,9 @@ class CommentScraper:
         permalink = comment.get_attribute("permalink")
         score = comment.get_attribute("score")
         postid = comment.get_attribute("postid")
+
+        # Keep track of comment
+        self.comment_ids.add(id)
 
         return {
             "author": author,
@@ -51,13 +55,43 @@ class CommentScraper:
             "postid": postid,
             "content": content.text if content else None,
         }
+    
+    
 
-    def scrape_child_comments(self, comment: WebElement):
-        author = comment.get_attribute("author")
-        print(f"Received comment from {author}")
+    # Name will be updated to better reflect job
+    def get(self, comments: List[WebElement], comment_limit: int) -> Tuple[Dict, bool]:
+        scraped_comments = {}
 
-        # This will neeed to be recursive
-        ...
+        for comment in comments:
+            depth = comment.get_attribute("depth")
+
+            # Skip child comments, they will be scraped by parent
+            if depth != "0":
+                continue
+
+            # Check for children or "more reply button"
+            more_replies_buttons = comment.find_elements(
+                By.CSS_SELECTOR, "faceplate-partial[loading='action']"
+            )
+
+            while more_replies_buttons:
+                print(f"Found {len(more_replies_buttons)}")
+                for m in more_replies_buttons:
+                    m.click()
+                    print("CLICKED")
+                    time.sleep(10)
+
+                # Check for children or "more reply button"
+                more_replies_buttons = comment.find_elements(
+                    By.CSS_SELECTOR, "faceplate-partial[loading='action']"
+                )
+
+            if len(self.comment_ids) == comment_limit:
+                return (scraped_comments, False)
+
+            return ({}, False)
+
+            # content = self.scrape_comment(comment)
 
     def scrape_comments(self, comment_limit: int) -> Dict:
         all_comments = {}
@@ -67,25 +101,35 @@ class CommentScraper:
             comment_tree = WebDriverWait(self.driver, 5).until(
                 EC.presence_of_element_located((By.TAG_NAME, "shreddit-comment-tree"))
             )
-            total_comments = comment_tree.get_attribute("totalcomments")
+            total_comments = int(comment_tree.get_attribute("totalcomments"))
             logging.info(f"Post has {total_comments} comments")
+
+            if total_comments < comment_limit:
+                logging.warning(
+                    f"Unable to scrape {comment_limit}, scraping {total_comments}."
+                )
+                comment_limit = total_comments
 
             while True:
                 current_comments = comment_tree.find_elements(
                     By.TAG_NAME, "shreddit-comment"
                 )
 
-                for comment in current_comments[len(all_comments) :]:
-                    content = self.scrape_comment(comment)
+                scraped_comments, _continue = self.get(
+                    current_comments[len(all_comments) :], comment_limit
+                )
 
-                    # If comment depth is 0, then it is a parent comment
-                    # We should scrape any children
+                # Add scraped comments
+                all_comments.update(scraped_comments)
 
-                    # If comment depth is not 0, then it must be a child comment.
-                    print(content)
-                    print("\n\n")
+                if not _continue:
+                    break
 
-                break
+                # Exit loop if page is unable to scroll down more
+                if not scroll_page(self.driver):
+                    break
+
+                time.sleep(10)
 
             return all_comments
 
@@ -107,9 +151,10 @@ if __name__ == "__main__":
 
     driver = webdriver.Chrome(options=options)
     driver.get(
-        "https://www.reddit.com/r/halifax/comments/1bh5xr9/where_would_you_go_for_a_nice_sized_pan_fried/"
+        "https://www.reddit.com/r/NovaScotia/comments/101jout/lets_get_us_a_mod_team/"
     )
 
+        # "https://www.reddit.com/r/halifax/comments/1bh5xr9/where_would_you_go_for_a_nice_sized_pan_fried/"
     cs = CommentScraper(driver)
     comments = cs.scrape_comments(comment_limit=100)
     print(comments)
