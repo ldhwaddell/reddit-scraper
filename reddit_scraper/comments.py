@@ -24,8 +24,9 @@ logger = logging.basicConfig(
 
 
 class CommentScraper:
-    def __init__(self, driver: webdriver.Chrome) -> None:
+    def __init__(self, driver: webdriver.Chrome, limit: int) -> None:
         self.driver = driver
+        self.limit = limit
         self.comment_ids = set()
 
     def scrape_comment_content(self, comment: WebElement) -> Dict:
@@ -56,95 +57,82 @@ class CommentScraper:
             "content": content if content else None,
         }
 
-    # # Name will be updated to better reflect job
-    # def get(self, comments: List[WebElement], comment_limit: int) -> Tuple[Dict, bool]:
-    #     scraped_comments = {}
+    # Make this recursive?
+    def scrape_children(self, comment: WebElement, depth: int):
+        children = comment.find_elements(
+            By.XPATH, f"//shreddit-comment[@depth='{depth}']"
+        )
 
-    #     for comment in comments:
-    #         depth = comment.get_attribute("depth")
-    #         thingid = comment.get_attribute("thingid")
+        for child in children:
+            content = self.scrape_comment_content(child)
+            if content["id"] in self.comment_ids:
+                continue
 
-    #         # Skip child comments, they will be scraped by parent
-    #         if depth != "0":
-    #             continue
-
-    #         # Scrape the comment
-    #         # content = self.scrape_comment_content(comment)
-
-    #         # Check for children or "more reply button"
-    #         more_replies_buttons = comment.find_elements(
-    #             By.CSS_SELECTOR, "faceplate-partial[loading='action']"
-    #         )
-
-    #         while more_replies_buttons:
-    #             # Go through buttons and click them
-    #             logging.info(
-    #                 f"Found {len(more_replies_buttons)} 'more replies' buttons"
-    #             )
-
-    #             for button in more_replies_buttons:
-    #                 button.click()
-    #                 print("CLICKED")
-    #                 time.sleep(8)
-
-    #                 # now scrape comments
-    #                 comment_with_more_replies = comment.find_element(
-    #                     By.XPATH, f"//shreddit-comment[@thingid='{thingid}']"
-    #                 )
-
-    #                 print(
-    #                     len(
-    #                         comment_with_more_replies.find_elements(
-    #                             By.TAG_NAME, "shreddit-comment"
-    #                         )
-    #                     )
-    #                 )
-
-    #             # Check for children or "more reply button"
-    #             more_replies_buttons = comment.find_elements(
-    #                 By.CSS_SELECTOR, "faceplate-partial[loading='action']"
-    #             )
-
-    #         if len(self.comment_ids) == comment_limit:
-    #             return (scraped_comments, False)
-
-    #         return ({}, False)
-
-    # Name will be updated to better reflect job
     # Function assumes it is only getting parent comments
-    def get(self, comment: WebElement, comment_limit: int) -> Tuple[Dict, bool]:
+    def get(self, comment: WebElement) -> Tuple[Dict, bool]:
+        """
+        Ideal situation
+
+        1. Scrape the parent comment.
+        2. Scrape the children
+        3. Check for more replies buttons
+            - If there are none, return parent and children
+        4. If there is a more replies button, click it
+            - Then wait for page load
+        5. scrape the children
+        6. check for more replies button
+            - If there are none, return parent and children
+        7. If there is a more replies button, click it
+            - Then wait for page load
+        8. scrape the children
+        9. check for more replies button
+            - If there are none, return parent and children
+        ...
+
+        """
         scraped_comments = {}
 
-        thingid = comment.get_attribute("thingid")
+        parent_id = comment.get_attribute("thingid")
+
+        # If we have already seen the parent comment, just skip
+        if parent_id in self.comment_ids:
+            return ({}, True)
 
         # Scrape the comment
         content = self.scrape_comment_content(comment)
 
-        # If we have already seen the comment, just skip
-        if thingid in self.comment_ids:
-            return ({}, True)
+        # Add to scraped comments
+        scraped_comments[parent_id] = content
+        self.comment_ids.add(parent_id)
 
-        scraped_comments[thingid] = content
-        self.comment_ids.add(thingid)
-
-        # Check for children
-        if len(self.comment_ids) == comment_limit:
+        # Check if limit is reached
+        if len(self.comment_ids) == self.limit:
             return (scraped_comments, False)
 
-        # Check for "more reply" button
-        try:
-            more_replies_button = comment.find_element(
-                By.CSS_SELECTOR, "faceplate-partial[loading='action']"
-            )
-        except NoSuchElementException:
-            more_replies_button = None
+        # Check for children
+        children = comment.find_elements(By.XPATH, ".//shreddit-comment[@depth='1']")
 
-        # No more replies
-        if not more_replies_button:
-            print("NO REPLIES")
-            return (scraped_comments, True)
+        print(f"found {len(children)} children")
+        for c in children:
+            print(c.get_attribute("author"))
+        print("\n\n\n")
 
-    def scrape_comments(self, comment_limit: int) -> Dict:
+        if not children:
+            try:
+                more_replies_button = comment.find_element(
+                    By.CSS_SELECTOR, ".//faceplate-partial[loading='action'][last()]"
+                )
+
+                print("FOUND MORE REPLIES BUTTON IN PARENT")
+                print(more_replies_button.get_attribute("slot"))
+                # Wait then scrape children
+
+            except NoSuchElementException:
+                return (scraped_comments, True)
+        else:
+            return ({}, True)
+
+    def scrape_comments(self) -> Dict:
         all_comments = {}
 
         try:
@@ -155,12 +143,12 @@ class CommentScraper:
             total_comments = int(comment_tree.get_attribute("totalcomments"))
             logging.info(f"Post has {total_comments} comments")
 
-            # Update comment limit if there aren't that many ocmments on the page
-            if total_comments < comment_limit:
+            # Update comment limit if there aren't enough comments on the page
+            if total_comments < self.limit:
                 logging.warning(
-                    f"Unable to scrape {comment_limit}, scraping {total_comments}."
+                    f"Unable to scrape {self.limit}, scraping {total_comments}."
                 )
-                comment_limit = total_comments
+                self.limit = total_comments
 
             while True:
                 current_comments = comment_tree.find_elements(
@@ -176,12 +164,12 @@ class CommentScraper:
                         continue
 
                     # Scrapes the current comment and its children
-                    scraped_comments, _continue = self.get(comment, comment_limit)
+                    scraped_comments, _continue = self.get(comment)
 
                     # Add scraped comments
                     all_comments.update(scraped_comments)
 
-                    # This means that self.get() signaled it has scraped comment_limit # of comments
+                    # This means that self.get() signaled it has scraped limit # of comments
                     if not _continue:
                         return all_comments
 
@@ -189,7 +177,6 @@ class CommentScraper:
 
                 # Exit loop if page is unable to scroll down more
                 if not scroll_page(self.driver):
-                    print("BOTTOM")
                     break
 
             return all_comments
@@ -211,10 +198,12 @@ if __name__ == "__main__":
     options.add_argument("window-size=1920,1080")
 
     driver = webdriver.Chrome(options=options)
-    driver.get("https://www.reddit.com/r/halifax/comments/1bjqiyi/where_can_i_shop/")
+    driver.get(
+        "https://www.reddit.com/r/halifax/comments/1bjbz07/hold_them_accountable_thousands_of_canadians_are/"
+    )
 
     # "https://www.reddit.com/r/NovaScotia/comments/101jout/lets_get_us_a_mod_team/"
     # "https://www.reddit.com/r/halifax/comments/1bh5xr9/where_would_you_go_for_a_nice_sized_pan_fried/"
-    cs = CommentScraper(driver)
-    comments = cs.scrape_comments(comment_limit=1000)
+    cs = CommentScraper(driver, limit=100)
+    comments = cs.scrape_comments()
     print(comments)
