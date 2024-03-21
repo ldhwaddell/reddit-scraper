@@ -42,15 +42,9 @@ class CommentScraper:
         score = comment.get_attribute("score")
         postid = comment.get_attribute("postid")
 
-        collapsed = comment.get_attribute("collapsed")
-        # content = comment.find_element(By.CSS_SELECTOR, "div[slot='comment']").get_attribute("innerText").strip()
-
-        # Ensure content is scraped even if comment is collapsed
-        if collapsed == "false":
-            content = comment.find_element(By.ID, "-post-rtjson-content").text
-        else:
-            raw_content = comment.find_element(By.CSS_SELECTOR, "div[slot='comment']")
-            content = raw_content.get_attribute("innerText").strip()
+        # Scrape text even if it is hidden due to downvotes
+        raw_content = comment.find_element(By.CSS_SELECTOR, "div[slot='comment']")
+        content = raw_content.get_attribute("innerText").strip()
 
         return {
             "author": author,
@@ -195,6 +189,7 @@ class CommentScraper:
 
                 # Exit loop if page is unable to scroll down more
                 if not scroll_page(self.driver):
+                    print("BOTTOM")
                     break
 
             return all_comments
@@ -216,9 +211,7 @@ if __name__ == "__main__":
     options.add_argument("window-size=1920,1080")
 
     driver = webdriver.Chrome(options=options)
-    driver.get(
-        "https://www.reddit.com/r/NovaScotia/comments/1biyidi/what_are_my_bathroom_rights/"
-    )
+    driver.get("https://www.reddit.com/r/halifax/comments/1bjqiyi/where_can_i_shop/")
 
     # "https://www.reddit.com/r/NovaScotia/comments/101jout/lets_get_us_a_mod_team/"
     # "https://www.reddit.com/r/halifax/comments/1bh5xr9/where_would_you_go_for_a_nice_sized_pan_fried/"
