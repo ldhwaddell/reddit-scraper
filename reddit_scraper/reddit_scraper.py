@@ -1,14 +1,11 @@
 import logging
-import random
 import re
-import time
 import traceback
 from concurrent import futures
 from typing import Optional, Type, Dict, List
 from types import TracebackType
 from urllib.parse import urlparse, urljoin
 
-from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from selenium import webdriver
 from selenium.webdriver.common.by import By
