@@ -253,16 +253,16 @@ class RedditScraper:
 
             content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
 
+            if download_media_dir:
+                media_scraper = MediaScraper(driver)
+                media_path = media_scraper.download_media(content, download_media_dir)
+                content["media_path"] = media_path
+
             if comment_limit:
                 logging.info("NOT IMPLEMENTED")
                 # comment_scraper = CommentScraper(driver)
                 # comments = comment_scraper.scrape_comments(comment_limit)
                 # content["comments"] = comments
-
-            if download_media_dir:
-                media_scraper = MediaScraper(driver)
-                media_path = media_scraper.download_media(content, download_media_dir)
-                content["media_path"] = media_path
 
             return content
 
