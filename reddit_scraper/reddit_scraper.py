@@ -241,17 +241,15 @@ class RedditScraper:
         :return: A dictionary containing the scraped content of the post, or None if an error occurs.
         """
         try:
-            content = {"tag": self.scrape_post_tag(post)}
-            logging.info(f"Scraping post titled: {content['tag']['post-title']}")
+            content = self.scrape_post_tag(post)
+            logging.info(f"Scraping post titled: {content['post-title']}")
 
-            content["url"] = urljoin(
-                "https://www.reddit.com", content["tag"]["permalink"]
-            )
+            content["url"] = urljoin("https://www.reddit.com", content["permalink"])
 
             driver = self.build_web_driver(headless=True)
             driver.get(content["url"])
 
-            content["post"] = self.scrape_post_content(driver, content["tag"]["id"])
+            content["post"] = self.scrape_post_content(driver, content["id"])
 
             if download_media_dir:
                 media_scraper = MediaScraper(driver)
@@ -264,7 +262,7 @@ class RedditScraper:
                 # comments = comment_scraper.scrape_comments(comment_limit)
                 # content["comments"] = comments
 
-            return content
+            return {"tag": content}
 
         except Exception as e:
             logging.error(
