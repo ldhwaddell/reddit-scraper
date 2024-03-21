@@ -203,27 +203,13 @@ class RedditScraper:
             # Find the 'shreddit-post' element
             post = driver.find_element(By.TAG_NAME, "shreddit-post")
 
-            text = post.find_element(
+            text_div = post.find_element(
                 By.CSS_SELECTOR, f"div[id]:not(#{post_id}-overflow-cover)"
             )
 
-            html = text.get_attribute("innerHTML")
-            soup = BeautifulSoup(html, "html.parser")
+            raw_text = text_div.get_attribute("innerText")
+            return raw_text.strip() if raw_text else None
 
-            formatted_text = ""
-            for element in soup.find_all(["p", "h1", "h2", "h3", "ul", "li"]):
-                # Skip elements with nested tags to text is not extracted twice
-                if element.find(["p", "h1", "h2", "h3", "ul", "li"]):
-                    continue
-
-                if element.name.startswith("h"):
-                    formatted_text += f"\n{element.get_text().strip()}\n"
-                elif element.name == "p":
-                    formatted_text += f"\n{element.get_text().strip()}"
-                elif element.name in ["ul", "li"]:
-                    formatted_text += f"\n{element.get_text().strip()}"
-
-            return formatted_text
         except NoSuchElementException:
             # Meaning there is no body text
             return None
